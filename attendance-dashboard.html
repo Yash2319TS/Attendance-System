@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>Attendance Console</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><span class="dot">●</span>ATTENDANCE CONSOLE</h1>
+        <span class="meta" id="todayLabel"></span>
+      </header>
+
+      <div class="stats">
+        <div class="stat">
+          <div class="n" id="statTotal">0</div>
+          <div class="l">enrolled</div>
+        </div>
+        <div class="stat present">
+          <div class="n" id="statPresent">0</div>
+          <div class="l">present today</div>
+        </div>
+        <div class="stat late">
+          <div class="n" id="statLate">0</div>
+          <div class="l">late today</div>
+        </div>
+        <div class="stat absent">
+          <div class="n" id="statAbsent">0</div>
+          <div class="l">absent today</div>
+        </div>
+      </div>
+
+      <div class="controls">
+        <div class="tabs" id="tabs">
+          <button class="tab active" data-filter="all">All</button>
+          <button class="tab" data-filter="present">Present</button>
+          <button class="tab" data-filter="late">Late</button>
+          <button class="tab" data-filter="absent">Absent</button>
+        </div>
+        <input
+          class="search"
+          id="search"
+          placeholder="Search name or roll no."
+        />
+      </div>
+
+      <div class="tblwrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Student</th>
+              <th>Today</th>
+              <th>Last scan</th>
+              <th>Last 7 days</th>
+              <th>Attendance</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+        <div class="empty" id="empty" style="display: none">
+          No students match this filter.
+        </div>
+      </div>
+
+      <footer>
+        <span id="syncLabel">Fingerprint sensor feed &middot; connecting…</span>
+        <span id="countLabel"></span>
+      </footer>
+    </div>
+
+    <script>
+      // ── CONFIG ─────────────────────────────────────────────────────────────
+      // Paste the /exec URL you get after deploying the Apps Script (see Code.gs)
+      // as a Web App. This is the "API" your Google Sheet serves JSON from.
+      const API_URL =
+        "https://script.google.com/macros/s/AKfycbxZgJtr2hMYUVEQ5FDpnGIDUv77TT5131R9qWuPYIJQtmg9mm_yPMLJ13ITlNDBpQzhvw/exec";
+      const POLL_MS = 15000; // how often to re-fetch from the sheet
+      // ───────────────────────────────────────────────────────────────────────
+
+      let students = [];
+      let activeFilter = "all";
+      let query = "";
+
+      document.getElementById("todayLabel").textContent =
+        new Date().toLocaleDateString("en-IN", {
+          weekday: "short",
+          day: "numeric",
+          month: "short",
+        });
+
+      async function fetchData() {
+        const syncLabel = document.getElementById("syncLabel");
+        try {
+          const res = await fetch(API_URL, { cache: "no-store" });
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          const data = await res.json();
+          students = Array.isArray(data) ? data : data.error ? [] : data;
+          syncLabel.textContent =
+            "Fingerprint sensor feed \u00b7 last sync " +
+            new Date().toLocaleTimeString("en-IN", {
+              hour: "2-digit",
+              minute: "2-digit",
+            });
+          render();
+        } catch (err) {
+          syncLabel.textContent =
+            "Sync failed \u2014 check API_URL / sheet sharing (" +
+            err.message +
+            ")";
+        }
+      }
+
+      function render() {
+        const rows = document.getElementById("rows");
+        const filtered = students.filter((s) => {
+          const matchesFilter =
+            activeFilter === "all" || s.today === activeFilter;
+          const q = query.trim().toLowerCase();
+          const matchesQuery =
+            !q || s.name.toLowerCase().includes(q) || s.roll.includes(q);
+          return matchesFilter && matchesQuery;
+        });
+
+        rows.innerHTML = filtered
+          .map(
+            (s) => `
+      <tr>
+        <td><div class="name">${s.name}</div><div class="roll">${s.roll}</div></td>
+        <td><span class="badge ${s.today}">${s.today}</span></td>
+        <td class="scan">${s.lastScan}</td>
+        <td><div class="week">${s.week.map((d) => `<span class="${d}" title="${d}"></span>`).join("")}</div></td>
+        <td class="pct" style="color:${s.attendance >= 85 ? "var(--present)" : s.attendance >= 70 ? "var(--late)" : "var(--absent)"}">${s.attendance}%</td>
+      </tr>
+    `,
+          )
+          .join("");
+
+        document.getElementById("empty").style.display = filtered.length
+          ? "none"
+          : "block";
+        document.getElementById("countLabel").textContent =
+          `Showing ${filtered.length} of ${students.length} students`;
+
+        document.getElementById("statTotal").textContent = students.length;
+        document.getElementById("statPresent").textContent = students.filter(
+          (s) => s.today === "present",
+        ).length;
+        document.getElementById("statLate").textContent = students.filter(
+          (s) => s.today === "late",
+        ).length;
+        document.getElementById("statAbsent").textContent = students.filter(
+          (s) => s.today === "absent",
+        ).length;
+      }
+
+      document.getElementById("tabs").addEventListener("click", (e) => {
+        const btn = e.target.closest(".tab");
+        if (!btn) return;
+        document
+          .querySelectorAll(".tab")
+          .forEach((t) => t.classList.remove("active"));
+        btn.classList.add("active");
+        activeFilter = btn.dataset.filter;
+        render();
+      });
+
+      document.getElementById("search").addEventListener("input", (e) => {
+        query = e.target.value;
+        render();
+      });
+
+      fetchData();
+      setInterval(fetchData, POLL_MS);
+    </script>
+  </body>
+</html>
